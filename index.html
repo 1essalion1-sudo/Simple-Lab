@@ -55,7 +55,7 @@
 </section>
 <footer class="footer">Simple Lab · Your files stay on your device</footer>
 </main>
-<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+
 <script>
 const $=id=>document.getElementById(id);
 function status(el,msg,error=false){el.textContent=msg;el.classList.toggle('error',error);el.style.display='block'}
@@ -105,7 +105,16 @@ async function getFFmpeg(){
  if(ffmpegInstance)return ffmpegInstance;
  if(ffmpegLoading)return ffmpegLoading;
  ffmpegLoading=(async()=>{
-  if(!window.FFmpeg||!window.FFmpeg.createFFmpeg)throw new Error('The FFmpeg engine could not load. Check your internet connection and reload.');
+  if(!window.FFmpeg){
+   await new Promise((resolve,reject)=>{
+    const script=document.createElement('script');
+    script.src='https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js';
+    script.onload=resolve;
+    script.onerror=()=>reject(new Error('Could not load the FFmpeg library. Check your internet connection and try again.'));
+    document.head.appendChild(script);
+   });
+  }
+  if(!window.FFmpeg||!window.FFmpeg.createFFmpeg)throw new Error('The FFmpeg library did not initialize. Try reloading the page.');
   const engine=window.FFmpeg.createFFmpeg({
    log:false,
    corePath:'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
