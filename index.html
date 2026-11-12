@@ -51,7 +51,7 @@
 <div class="actions"><button class="btn" id="convertBtn" disabled>Convert video to audio</button><button class="btn secondary" id="clearVideo" type="button">Clear</button></div>
 <div class="progress" id="progress"><span id="progressBar"></span></div>
 <div class="status" id="audioStatus" role="status"></div>
-<p class="note">Uses FFmpeg in your browser to extract and encode MP3 offline, without playing the video in real time. Your video stays on your device and is not uploaded. Conversion speed depends on your device; large videos may need extra memory. The MP3 downloads directly when processing finishes. Keep this tab open during conversion.</p>
+<p class="note">Uses the single-thread FFmpeg engine in your browser to extract and encode MP3 offline, without requiring SharedArrayBuffer. Your video stays on your device and is not uploaded. Conversion speed depends on your device; large videos may need extra memory. The MP3 downloads directly when processing finishes. Keep this tab open during conversion.</p>
 </section>
 <footer class="footer">Simple Lab · Your files stay on your device</footer>
 </main>
@@ -117,7 +117,7 @@ async function getFFmpeg(){
   if(!window.FFmpeg||!window.FFmpeg.createFFmpeg)throw new Error('The FFmpeg library did not initialize. Try reloading the page.');
   const engine=window.FFmpeg.createFFmpeg({
    log:false,
-   corePath:'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+   corePath:'https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js',
    progress:({ratio})=>{
     if(Number.isFinite(ratio))$('progressBar').style.width=Math.max(0,Math.min(99,ratio*100))+'%';
    }
