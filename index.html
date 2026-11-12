@@ -46,8 +46,7 @@
 <div class="fileline" id="videoInfo">No video selected</div>
 <div class="preview" id="videoPreview"><video id="videoView" controls playsinline></video></div>
 <div class="fields">
-<div class="field"><label for="folderName">Output folder name</label><input id="folderName" type="text" maxlength="60" value="My Audio" placeholder="e.g. My Audio"></div>
-<div class="field"><label for="audioName">Audio file name</label><input id="audioName" type="text" maxlength="80" value="extracted-audio" placeholder="e.g. extracted-audio"></div>
+<div class="field"><label for="audioName">MP3 file name</label><input id="audioName" type="text" maxlength="80" value="extracted-audio" placeholder="e.g. my-audio"></div>
 </div>
 <div class="actions"><button class="btn" id="convertBtn" disabled>Convert video to audio</button><button class="btn secondary" id="clearVideo" type="button">Clear</button></div>
 <div class="progress" id="progress"><span id="progressBar"></span></div>
@@ -56,6 +55,7 @@
 </section>
 <footer class="footer">Simple Lab · Your files stay on your device</footer>
 </main>
+<script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 function status(el,msg,error=false){el.textContent=msg;el.classList.toggle('error',error);el.style.display='block'}
@@ -100,67 +100,74 @@ $('videoInput').addEventListener('change',e=>{
  if(videoUrl)URL.revokeObjectURL(videoUrl);videoUrl=URL.createObjectURL(videoFile);
  $('videoView').src=videoUrl;$('videoPreview').style.display='block';$('videoInfo').textContent=videoFile.name+' · '+humanSize(videoFile.size);$('convertBtn').disabled=false;
 });
+let audioContext=null,mediaSource=null,processor=null,mp3Parts=[],sampleCount=0;
 $('convertBtn').onclick=async()=>{
  if(!videoFile||recording)return;
+ if(!window.lamejs){status($('audioStatus'),'The MP3 encoder could not load. Check your internet connection and reload this page.',true);return}
  const video=$('videoView');
- const capture=video.captureStream||video.mozCaptureStream;
- if(!capture){status($('audioStatus'),'This browser does not support audio extraction. Try a recent desktop Chrome or Edge browser.',true);return}
  clearStatus($('audioStatus'));
- let stream,recorder,chunks=[];
+ recording=true;$('convertBtn').disabled=true;$('convertBtn').textContent='Converting to MP3…';
+ $('progress').style.display='block';$('progressBar').style.width='0%';
  try{
-  video.pause();video.currentTime=0;await video.play();
-  stream=capture.call(video);
-  const audioTracks=stream.getAudioTracks();
-  if(!audioTracks.length){video.pause();status($('audioStatus'),'No audio track was found in this video.',true);return}
-  const audioStream=new MediaStream(audioTracks);
-  const types=['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/ogg'];
-  const mime=types.find(t=>MediaRecorder.isTypeSupported(t))||'';
-  recorder=new MediaRecorder(audioStream,mime?{mimeType:mime}:undefined);
-  recording=true;$('convertBtn').disabled=true;$('convertBtn').textContent='Converting…';$('progress').style.display='block';$('progressBar').style.width='0%';
-  const duration=Number.isFinite(video.duration)?video.duration:0;
-  let finished=false;
-  const finishRecording=()=>{
-   if(finished)return;
-   finished=true;
-   if(recorder&&recorder.state!=='inactive')recorder.stop();
-  };
-  const tick=setInterval(()=>{
-   if(duration>0){
-    const p=Math.min(99,(video.currentTime/duration)*100);
-    $('progressBar').style.width=p+'%';
-    // Some mobile browsers fail to fire the media "ended" event reliably.
-    if(video.ended||video.currentTime>=duration-0.25)finishRecording();
-   }else if(video.ended){finishRecording()}
-  },250);
-  video.addEventListener('timeupdate',()=>{
-   if(video.ended||(duration>0&&video.currentTime>=duration-0.25))finishRecording();
-  });
-  recorder.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)};
-  recorder.onerror=()=>{clearInterval(tick);recording=false;$('convertBtn').disabled=false;$('convertBtn').textContent='Convert video to audio';status($('audioStatus'),'Recording failed. Try a different video or browser.',true)};
-  recorder.onstop=async()=>{
-   clearInterval(tick);video.pause();stream.getTracks().forEach(t=>t.stop());recording=false;$('convertBtn').disabled=false;$('convertBtn').textContent='Convert video to audio';$('progressBar').style.width='100%';
-   const type=recorder.mimeType||'audio/webm',blob=new Blob(chunks,{type});
-   if(!blob.size){status($('audioStatus'),'No audio data was captured. Try another video.',true);return}
-   const ext=type.includes('ogg')?'ogg':'webm',folder=cleanName($('folderName').value,'My-Audio'),file=cleanName($('audioName').value,'extracted-audio')+'.'+ext;
-   try{
-    if(window.showDirectoryPicker){
-     const root=await window.showDirectoryPicker({mode:'readwrite'});const dir=await root.getDirectoryHandle(folder,{create:true});const handle=await dir.getFileHandle(file,{create:true});const writable=await handle.createWritable();await writable.write(blob);await writable.close();
-     status($('audioStatus'),'Finished! Saved '+folder+'/'+file+' in the folder you selected.');
-    }else{
-     const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=folder+'_'+file;a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);
-     status($('audioStatus'),'Finished! Your audio file was downloaded as '+folder+'_'+file+'. Your browser does not support choosing a destination folder here.');
-    }
-   }catch(err){
-    if(err&&err.name==='AbortError')status($('audioStatus'),'Folder selection was cancelled. Convert again when you are ready.',true);
-    else status($('audioStatus'),'Audio was converted, but saving failed. Please try downloading again.',true);
+  audioContext=audioContext||new (window.AudioContext||window.webkitAudioContext)();
+  if(audioContext.state==='suspended')await audioContext.resume();
+  if(!mediaSource)mediaSource=audioContext.createMediaElementSource(video);
+  if(processor){try{processor.disconnect()}catch(e){}}
+  processor=audioContext.createScriptProcessor(4096,1,1);
+  mp3Parts=[];sampleCount=0;
+  const encoder=new lamejs.Mp3Encoder(1,audioContext.sampleRate,128);
+  processor.onaudioprocess=e=>{
+   if(!recording)return;
+   const input=e.inputBuffer.getChannelData(0);
+   const pcm=new Int16Array(input.length);
+   for(let i=0;i<input.length;i++)pcm[i]=Math.max(-1,Math.min(1,input[i]))*32767;
+   for(let i=0;i<pcm.length;i+=1152){
+    const chunk=pcm.subarray(i,Math.min(i+1152,pcm.length));
+    if(chunk.length===1152){const out=encoder.encodeBuffer(chunk);if(out.length)mp3Parts.push(new Uint8Array(out))}
    }
-   setTimeout(()=>$('progress').style.display='none',1800);
+   sampleCount+=input.length;
+   if(Number.isFinite(video.duration)&&video.duration>0){
+    $('progressBar').style.width=Math.min(99,(video.currentTime/video.duration)*100)+'%';
+   }
   };
-  recorder.start(250);
-  video.onended=finishRecording;
-  video.onerror=()=>{clearInterval(tick);finishRecording();status($('audioStatus'),'The video could not be played by this browser.',true)};
+  mediaSource.connect(processor);
+  processor.connect(audioContext.destination);
+  video.pause();video.currentTime=0;
+  await video.play();
+  await new Promise((resolve,reject)=>{
+   let settled=false;
+   const finish=()=>{if(settled)return;settled=true;resolve()};
+   const fail=()=>{if(settled)return;settled=true;reject(new Error('Video playback failed'))};
+   video.addEventListener('ended',finish,{once:true});
+   video.addEventListener('error',fail,{once:true});
+   const guard=setInterval(()=>{
+    if(video.ended||(Number.isFinite(video.duration)&&video.duration>0&&video.currentTime>=video.duration-0.15)){clearInterval(guard);finish()}
+   },200);
+   // Keep the completion guard bounded if the browser stalls during playback.
+   setTimeout(()=>{if(!settled){clearInterval(guard);settled=true;reject(new Error('Playback did not finish'))}},Math.max(120000,(video.duration||600)*3000));
+  });
+  video.pause();recording=false;
+  if(processor){processor.disconnect();processor.onaudioprocess=null}
+  mediaSource.disconnect();
+  const tail=encoder.flush();if(tail.length)mp3Parts.push(new Uint8Array(tail));
+  if(!sampleCount){throw new Error('No audio samples were captured. This video may not contain an audio track.')}
+  const blob=new Blob(mp3Parts,{type:'audio/mpeg'});
+  if(!blob.size)throw new Error('The MP3 file could not be created.');
+  const filename=cleanName($('audioName').value,'extracted-audio')+'.mp3';
+  const url=URL.createObjectURL(blob),link=document.createElement('a');
+  link.href=url;link.download=filename;document.body.appendChild(link);link.click();link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),10000);
+  $('progressBar').style.width='100%';
+  status($('audioStatus'),'Finished! Downloaded '+filename+' ('+humanSize(blob.size)+').');
  }catch(err){
-  if(stream)stream.getTracks().forEach(t=>t.stop());recording=false;$('convertBtn').disabled=false;$('convertBtn').textContent='Convert video to audio';status($('audioStatus'),'Could not start conversion. Check that the video contains audio and try again.',true);
+  recording=false;
+  if(processor){try{processor.disconnect()}catch(e){}processor.onaudioprocess=null}
+  if(mediaSource){try{mediaSource.disconnect()}catch(e){}}
+  video.pause();
+  status($('audioStatus'),err.message||'Conversion failed. Try another video.',true);
+ }finally{
+  recording=false;$('convertBtn').disabled=false;$('convertBtn').textContent='Convert video to MP3';
+  setTimeout(()=>$('progress').style.display='none',1800);
  }
 };
 $('clearVideo').onclick=()=>{if(recording)return;videoFile=null;$('videoInput').value='';$('videoView').pause();$('videoView').removeAttribute('src');$('videoView').load();$('videoPreview').style.display='none';$('videoInfo').textContent='No video selected';$('convertBtn').disabled=true;clearStatus($('audioStatus'));$('progress').style.display='none';if(videoUrl)URL.revokeObjectURL(videoUrl);videoUrl=null};
