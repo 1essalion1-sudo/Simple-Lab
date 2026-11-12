@@ -51,11 +51,11 @@
 <div class="actions"><button class="btn" id="convertBtn" disabled>Convert video to audio</button><button class="btn secondary" id="clearVideo" type="button">Clear</button></div>
 <div class="progress" id="progress"><span id="progressBar"></span></div>
 <div class="status" id="audioStatus" role="status"></div>
-<p class="note">Converts the video audio to an MP3 while the video plays, so the conversion takes about as long as the video. When it finishes, the MP3 downloads directly to your device using the filename above. No output folder is created. Keep this tab open until the download starts.</p>
+<p class="note">Uses FFmpeg in your browser to extract and encode MP3 offline, without playing the video in real time. Your video stays on your device and is not uploaded. Conversion speed depends on your device; large videos may need extra memory. The MP3 downloads directly when processing finishes. Keep this tab open during conversion.</p>
 </section>
 <footer class="footer">Simple Lab · Your files stay on your device</footer>
 </main>
-<script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
+<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 function status(el,msg,error=false){el.textContent=msg;el.classList.toggle('error',error);el.style.display='block'}
@@ -100,74 +100,55 @@ $('videoInput').addEventListener('change',e=>{
  if(videoUrl)URL.revokeObjectURL(videoUrl);videoUrl=URL.createObjectURL(videoFile);
  $('videoView').src=videoUrl;$('videoPreview').style.display='block';$('videoInfo').textContent=videoFile.name+' · '+humanSize(videoFile.size);$('convertBtn').disabled=false;
 });
-let audioContext=null,mediaSource=null,processor=null,mp3Parts=[],sampleCount=0;
+let ffmpegInstance=null,ffmpegLoading=null,recording=false;
+async function getFFmpeg(){
+ if(ffmpegInstance)return ffmpegInstance;
+ if(ffmpegLoading)return ffmpegLoading;
+ ffmpegLoading=(async()=>{
+  if(!window.FFmpeg||!window.FFmpeg.createFFmpeg)throw new Error('The FFmpeg engine could not load. Check your internet connection and reload.');
+  const engine=window.FFmpeg.createFFmpeg({
+   log:false,
+   corePath:'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+   progress:({ratio})=>{
+    if(Number.isFinite(ratio))$('progressBar').style.width=Math.max(0,Math.min(99,ratio*100))+'%';
+   }
+  });
+  await engine.load();
+  ffmpegInstance=engine;
+  return engine;
+ })();
+ try{return await ffmpegLoading}catch(e){ffmpegLoading=null;throw e}
+}
 $('convertBtn').onclick=async()=>{
  if(!videoFile||recording)return;
- if(!window.lamejs){status($('audioStatus'),'The MP3 encoder could not load. Check your internet connection and reload this page.',true);return}
- const video=$('videoView');
- clearStatus($('audioStatus'));
- recording=true;$('convertBtn').disabled=true;$('convertBtn').textContent='Converting to MP3…';
- $('progress').style.display='block';$('progressBar').style.width='0%';
+ recording=true;$('convertBtn').disabled=true;$('convertBtn').textContent='Loading MP3 engine…';
+ clearStatus($('audioStatus'));$('progress').style.display='block';$('progressBar').style.width='0%';
+ let inputName='input-video',outputName='output-audio.mp3',engine=null;
  try{
-  audioContext=audioContext||new (window.AudioContext||window.webkitAudioContext)();
-  if(audioContext.state==='suspended')await audioContext.resume();
-  if(!mediaSource)mediaSource=audioContext.createMediaElementSource(video);
-  if(processor){try{processor.disconnect()}catch(e){}}
-  processor=audioContext.createScriptProcessor(4096,1,1);
-  mp3Parts=[];sampleCount=0;
-  const encoder=new lamejs.Mp3Encoder(1,audioContext.sampleRate,128);
-  processor.onaudioprocess=e=>{
-   if(!recording)return;
-   const input=e.inputBuffer.getChannelData(0);
-   const pcm=new Int16Array(input.length);
-   for(let i=0;i<input.length;i++)pcm[i]=Math.max(-1,Math.min(1,input[i]))*32767;
-   for(let i=0;i<pcm.length;i+=1152){
-    const chunk=pcm.subarray(i,Math.min(i+1152,pcm.length));
-    if(chunk.length===1152){const out=encoder.encodeBuffer(chunk);if(out.length)mp3Parts.push(new Uint8Array(out))}
-   }
-   sampleCount+=input.length;
-   if(Number.isFinite(video.duration)&&video.duration>0){
-    $('progressBar').style.width=Math.min(99,(video.currentTime/video.duration)*100)+'%';
-   }
-  };
-  mediaSource.connect(processor);
-  processor.connect(audioContext.destination);
-  video.pause();video.currentTime=0;
-  await video.play();
-  await new Promise((resolve,reject)=>{
-   let settled=false;
-   const finish=()=>{if(settled)return;settled=true;resolve()};
-   const fail=()=>{if(settled)return;settled=true;reject(new Error('Video playback failed'))};
-   video.addEventListener('ended',finish,{once:true});
-   video.addEventListener('error',fail,{once:true});
-   const guard=setInterval(()=>{
-    if(video.ended||(Number.isFinite(video.duration)&&video.duration>0&&video.currentTime>=video.duration-0.15)){clearInterval(guard);finish()}
-   },200);
-   // Keep the completion guard bounded if the browser stalls during playback.
-   setTimeout(()=>{if(!settled){clearInterval(guard);settled=true;reject(new Error('Playback did not finish'))}},Math.max(120000,(video.duration||600)*3000));
-  });
-  video.pause();recording=false;
-  if(processor){processor.disconnect();processor.onaudioprocess=null}
-  mediaSource.disconnect();
-  const tail=encoder.flush();if(tail.length)mp3Parts.push(new Uint8Array(tail));
-  if(!sampleCount){throw new Error('No audio samples were captured. This video may not contain an audio track.')}
-  const blob=new Blob(mp3Parts,{type:'audio/mpeg'});
-  if(!blob.size)throw new Error('The MP3 file could not be created.');
+  engine=await getFFmpeg();
+  $('convertBtn').textContent='Converting to MP3…';
+  const ext=(videoFile.name.match(/\.([a-z0-9]{1,8})$/i)||[])[1]||'mp4';
+  inputName='input-video.'+ext.replace(/[^a-z0-9]/gi,'');
+  engine.FS('writeFile',inputName,await window.FFmpeg.fetchFile(videoFile));
+  await engine.run('-i',inputName,'-vn','-map','0:a:0','-codec:a','libmp3lame','-b:a','192k','-y',outputName);
+  const data=engine.FS('readFile',outputName);
+  if(!data||!data.length)throw new Error('No audio was extracted. Check that the video contains an audio track.');
+  const blob=new Blob([data.buffer],{type:'audio/mpeg'});
   const filename=cleanName($('audioName').value,'extracted-audio')+'.mp3';
   const url=URL.createObjectURL(blob),link=document.createElement('a');
   link.href=url;link.download=filename;document.body.appendChild(link);link.click();link.remove();
-  setTimeout(()=>URL.revokeObjectURL(url),10000);
+  setTimeout(()=>URL.revokeObjectURL(url),15000);
   $('progressBar').style.width='100%';
   status($('audioStatus'),'Finished! Downloaded '+filename+' ('+humanSize(blob.size)+').');
  }catch(err){
-  recording=false;
-  if(processor){try{processor.disconnect()}catch(e){}processor.onaudioprocess=null}
-  if(mediaSource){try{mediaSource.disconnect()}catch(e){}}
-  video.pause();
-  status($('audioStatus'),err.message||'Conversion failed. Try another video.',true);
+  status($('audioStatus'),err.message||'Conversion failed. Try a smaller video or another browser.',true);
  }finally{
-  recording=false;$('convertBtn').disabled=false;$('convertBtn').textContent='Convert video to MP3';
-  setTimeout(()=>$('progress').style.display='none',1800);
+  if(engine){
+   try{engine.FS('unlink',inputName)}catch(e){}
+   try{engine.FS('unlink',outputName)}catch(e){}
+  }
+  recording=false;$('convertBtn').disabled=!videoFile;$('convertBtn').textContent='Convert video to MP3';
+  setTimeout(()=>$('progress').style.display='none',2200);
  }
 };
 $('clearVideo').onclick=()=>{if(recording)return;videoFile=null;$('videoInput').value='';$('videoView').pause();$('videoView').removeAttribute('src');$('videoView').load();$('videoPreview').style.display='none';$('videoInfo').textContent='No video selected';$('convertBtn').disabled=true;clearStatus($('audioStatus'));$('progress').style.display='none';if(videoUrl)URL.revokeObjectURL(videoUrl);videoUrl=null};
