@@ -1,1 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0b1020">
+<title>Simple Lab — Media Tools</title>
+<style>
+:root{color-scheme:dark;--bg:#080d1b;--panel:#111a2e;--panel2:#17233c;--line:#293957;--text:#edf3ff;--muted:#9aabc8;--accent:#8b7cff;--cyan:#5ed9e8;--good:#6fe0ae}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(ellipse at 15% 0%,#20204b 0,transparent 38%),radial-gradient(ellipse at 100% 25%,#10384a 0,transparent 32%),var(--bg);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--text)}
+.wrap{width:min(980px,calc(100% - 32px));margin:auto;padding:42px 0 60px}.top{text-align:center;margin-bottom:30px}.eyebrow{display:inline-flex;gap:8px;align-items:center;border:1px solid #39436b;background:#171b37;color:#c8c4ff;padding:7px 12px;border-radius:99px;font-size:12px;letter-spacing:.08em;text-transform:uppercase}.dot{width:7px;height:7px;border-radius:50%;background:var(--good);box-shadow:0 0 12px var(--good)}h1{font-size:clamp(32px,7vw,52px);letter-spacing:-.04em;margin:15px 0 8px}.gradient{background:linear-gradient(90deg,#a99bff,#67e2eb);background-clip:text;color:transparent}.sub{color:var(--muted);margin:0 auto;max-width:570px;line-height:1.6}
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:10px;background:#0d1527;border:1px solid var(--line);padding:7px;border-radius:17px;margin:28px auto 18px;max-width:620px}.tab{border:0;border-radius:12px;padding:13px 10px;background:transparent;color:var(--muted);font-size:14px;font-weight:700;cursor:pointer}.tab.active{background:linear-gradient(110deg,#6258d9,#237c91);color:white;box-shadow:0 7px 24px #0005}
+.panel{background:linear-gradient(145deg,#141e34ed,#0f192bed);border:1px solid var(--line);border-radius:22px;padding:clamp(18px,4vw,30px);box-shadow:0 20px 70px #0003}.tool-head{display:flex;gap:14px;align-items:center;margin-bottom:22px}.tool-icon{width:48px;height:48px;border-radius:15px;display:grid;place-items:center;background:#27234f;color:#bdb5ff;font-size:23px}.tool-head h2{margin:0 0 4px;font-size:21px}.tool-head p{margin:0;color:var(--muted);font-size:13px;line-height:1.5}
+.drop{border:1.5px dashed #53678d;border-radius:17px;background:#0b1426;padding:27px 16px;text-align:center;cursor:pointer;transition:.2s}.drop:hover,.drop.drag{border-color:var(--cyan);background:#102333}.drop .big{font-size:30px;margin-bottom:7px}.drop strong{display:block;margin-bottom:5px}.drop small{color:var(--muted)}input[type=file]{display:none}
+.fileline{margin-top:13px;color:var(--muted);font-size:13px;overflow-wrap:anywhere}.preview{display:none;margin-top:16px;border:1px solid var(--line);background:#090f1d;border-radius:15px;padding:12px}.preview img,.preview video{display:block;max-width:100%;max-height:320px;margin:auto;border-radius:9px}.fields{display:grid;grid-template-columns:1fr 1fr;gap:13px;margin-top:18px}.field{display:flex;flex-direction:column;gap:7px}.field label{font-size:12px;color:#c4d0e6;font-weight:700}.field input{width:100%;background:#091224;border:1px solid #344565;color:white;border-radius:11px;padding:12px 13px;font:inherit;outline:none}.field input:focus{border-color:var(--cyan);box-shadow:0 0 0 3px #5ed9e81c}
+.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}.btn{border:0;border-radius:11px;padding:12px 17px;font-weight:750;font-size:13px;cursor:pointer;background:linear-gradient(110deg,#7568f3,#278fa3);color:white}.btn:disabled{opacity:.42;cursor:not-allowed}.btn.secondary{background:#1c2a43;border:1px solid #3b4c6d;color:#dce8ff}.status{display:none;margin-top:15px;border-radius:12px;padding:12px 14px;background:#102b2b;border:1px solid #28645b;color:#b7f5dc;font-size:13px;line-height:1.5}.status.error{background:#321b27;border-color:#784052;color:#ffc5d2}
+.note{margin-top:18px;color:var(--muted);font-size:12px;line-height:1.65}.hidden{display:none!important}.footer{text-align:center;color:#71819f;font-size:12px;margin-top:22px}.progress{height:6px;background:#26344c;border-radius:10px;overflow:hidden;margin-top:13px;display:none}.progress span{display:block;width:0;height:100%;background:linear-gradient(90deg,var(--accent),var(--cyan));transition:width .2s}
+@media(max-width:600px){.wrap{padding-top:28px}.fields{grid-template-columns:1fr}.tabs{margin-top:22px}.tab{font-size:12px;padding:12px 5px}.actions .btn{flex:1}}
+</style>
+</head>
+<body>
+<main class="wrap">
+<header class="top">
+<div class="eyebrow"><span class="dot"></span> Simple Lab · Private media tools</div>
+<h1>Simple <span class="gradient">Lab</span></h1>
+<p class="sub">Small, useful tools for your media. Process files directly in your browser — no upload to a server.</p>
+</header>
+<nav class="tabs" aria-label="Choose a tool">
+<button class="tab active" id="tabMeta" type="button">✦ Metadata Eraser</button>
+<button class="tab" id="tabAudio" type="button">♫ Video to Audio</button>
+</nav>
+<section class="panel" id="metaPanel">
+<div class="tool-head"><div class="tool-icon">✦</div><div><h2>Image Metadata Eraser</h2><p>Remove embedded metadata by creating a fresh copy of your image.</p></div></div>
+<label class="drop" id="imageDrop" for="imageInput"><div class="big">▧</div><strong>Choose an image</strong><small>Tap to browse or drop a JPG, PNG or WebP here</small></label>
+<input id="imageInput" type="file" accept="image/jpeg,image/png,image/webp">
+<div class="fileline" id="imageInfo">No image selected</div>
+<div class="preview" id="imagePreview"><img id="imageView" alt="Selected image preview"></div>
+<div class="actions"><button class="btn" id="eraseBtn" disabled>Erase metadata & download</button><button class="btn secondary" id="clearImage" type="button">Clear</button></div>
+<div class="status" id="metaStatus" role="status"></div>
+<p class="note">How it works: the image is redrawn onto a clean canvas and exported as a new file. This strips common EXIF and other embedded metadata. The original file is not changed.</p>
+</section>
+<section class="panel hidden" id="audioPanel">
+<div class="tool-head"><div class="tool-icon">♫</div><div><h2>Video to Audio Converter</h2><p>Extract the audio track from a video and save it as an audio file.</p></div></div>
+<label class="drop" id="videoDrop" for="videoInput"><div class="big">▹</div><strong>Choose a video</strong><small>Tap to browse MP4, WebM or another browser-supported video</small></label>
+<input id="videoInput" type="file" accept="video/*">
+<div class="fileline" id="videoInfo">No video selected</div>
+<div class="preview" id="videoPreview"><video id="videoView" controls playsinline></video></div>
+<div class="fields">
+<div class="field"><label for="folderName">Output folder name</label><input id="folderName" type="text" maxlength="60" value="My Audio" placeholder="e.g. My Audio"></div>
+<div class="field"><label for="audioName">Audio file name</label><input id="audioName" type="text" maxlength="80" value="extracted-audio" placeholder="e.g. extracted-audio"></div>
+</div>
+<div class="actions"><button class="btn" id="convertBtn" disabled>Convert video to audio</button><button class="btn secondary" id="clearVideo" type="button">Clear</button></div>
+<div class="progress" id="progress"><span id="progressBar"></span></div>
+<div class="status" id="audioStatus" role="status"></div>
+<p class="note">Conversion happens in real time while the video plays. The output format is WebM or OGG audio, depending on browser support. Where supported, you can choose a folder and save the file inside it; otherwise it downloads with your folder name as a filename prefix. Keep this tab open until conversion finishes.</p>
+</section>
+<footer class="footer">Simple Lab · Your files stay on your device</footer>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+function status(el,msg,error=false){el.textContent=msg;el.classList.toggle('error',error);el.style.display='block'}
+function clearStatus(el){el.style.display='none';el.textContent=''}
+function cleanName(s,fallback){return (s||'').trim().replace(/[\\/:*?"<>|\u0000-\u001f]/g,'-').replace(/\s+/g,'-').slice(0,80)||fallback}
+function humanSize(n){if(n<1024)return n+' B';if(n<1048576)return (n/1024).toFixed(1)+' KB';return (n/1048576).toFixed(2)+' MB'}
+function showTool(which){const meta=which==='meta';$('metaPanel').classList.toggle('hidden',!meta);$('audioPanel').classList.toggle('hidden',meta);$('tabMeta').classList.toggle('active',meta);$('tabAudio').classList.toggle('active',!meta)}
+$('tabMeta').onclick=()=>showTool('meta');$('tabAudio').onclick=()=>showTool('audio');
 
+let imageFile=null,imageUrl=null;
+$('imageInput').addEventListener('change',e=>{
+ imageFile=e.target.files[0]||null;clearStatus($('metaStatus'));
+ if(!imageFile)return;
+ if(!/^image\/(jpeg|png|webp)$/.test(imageFile.type)){status($('metaStatus'),'Please choose a JPG, PNG or WebP image.',true);imageFile=null;return}
+ imageUrl=URL.createObjectURL(imageFile);$('imageView').src=imageUrl;$('imagePreview').style.display='block';$('imageInfo').textContent=imageFile.name+' · '+humanSize(imageFile.size);$('eraseBtn').disabled=false;
+});
+$('eraseBtn').onclick=()=>{
+ if(!imageFile)return;
+ const img=new Image();
+ img.onload=()=>{
+  try{
+   const canvas=document.createElement('canvas');canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;
+   const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);
+   const mime=imageFile.type==='image/png'?'image/png':imageFile.type==='image/webp'?'image/webp':'image/jpeg';
+   canvas.toBlob(blob=>{
+    if(!blob){status($('metaStatus'),'Could not export this image. Try another file.',true);return}
+    const ext=mime==='image/png'?'png':mime==='image/webp'?'webp':'jpg';
+    const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=cleanName(imageFile.name.replace(/\.[^.]+$/,''),'image')+'-clean.'+ext;a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);
+    status($('metaStatus'),'Done! A clean copy was created and downloaded. Your original image was left unchanged.');
+   },mime,mime==='image/jpeg'?0.94:undefined);
+  }catch(e){status($('metaStatus'),'Could not process this image in the browser.',true)}
+ };
+ img.onerror=()=>status($('metaStatus'),'This image could not be opened.',true);img.src=imageUrl;
+};
+$('clearImage').onclick=()=>{imageFile=null;$('imageInput').value='';$('imageView').removeAttribute('src');$('imagePreview').style.display='none';$('imageInfo').textContent='No image selected';$('eraseBtn').disabled=true;clearStatus($('metaStatus'));if(imageUrl)URL.revokeObjectURL(imageUrl);imageUrl=null};
+
+let videoFile=null,videoUrl=null,recording=false;
+$('videoInput').addEventListener('change',e=>{
+ videoFile=e.target.files[0]||null;clearStatus($('audioStatus'));
+ if(!videoFile)return;
+ if(!videoFile.type.startsWith('video/')){status($('audioStatus'),'Please choose a video file.',true);videoFile=null;return}
+ if(videoUrl)URL.revokeObjectURL(videoUrl);videoUrl=URL.createObjectURL(videoFile);
+ $('videoView').src=videoUrl;$('videoPreview').style.display='block';$('videoInfo').textContent=videoFile.name+' · '+humanSize(videoFile.size);$('convertBtn').disabled=false;
+});
+$('convertBtn').onclick=async()=>{
+ if(!videoFile||recording)return;
+ const video=$('videoView');
+ const capture=video.captureStream||video.mozCaptureStream;
+ if(!capture){status($('audioStatus'),'This browser does not support audio extraction. Try a recent desktop Chrome or Edge browser.',true);return}
+ clearStatus($('audioStatus'));
+ let stream,recorder,chunks=[];
+ try{
+  video.pause();video.currentTime=0;await video.play();
+  stream=capture.call(video);
+  const audioTracks=stream.getAudioTracks();
+  if(!audioTracks.length){video.pause();status($('audioStatus'),'No audio track was found in this video.',true);return}
+  const audioStream=new MediaStream(audioTracks);
+  const types=['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/ogg'];
+  const mime=types.find(t=>MediaRecorder.isTypeSupported(t))||'';
+  recorder=new MediaRecorder(audioStream,mime?{mimeType:mime}:undefined);
+  recording=true;$('convertBtn').disabled=true;$('convertBtn').textContent='Converting…';$('progress').style.display='block';$('progressBar').style.width='0%';
+  const started=Date.now(),duration=Number.isFinite(video.duration)?video.duration:0;
+  const tick=setInterval(()=>{if(duration){const p=Math.min(99,(video.currentTime/duration)*100);$('progressBar').style.width=p+'%'}},250);
+  recorder.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)};
+  recorder.onerror=()=>{clearInterval(tick);recording=false;$('convertBtn').disabled=false;$('convertBtn').textContent='Convert video to audio';status($('audioStatus'),'Recording failed. Try a different video or browser.',true)};
+  recorder.onstop=async()=>{
+   clearInterval(tick);video.pause();stream.getTracks().forEach(t=>t.stop());recording=false;$('convertBtn').disabled=false;$('convertBtn').textContent='Convert video to audio';$('progressBar').style.width='100%';
+   const type=recorder.mimeType||'audio/webm',blob=new Blob(chunks,{type});
+   if(!blob.size){status($('audioStatus'),'No audio data was captured. Try another video.',true);return}
+   const ext=type.includes('ogg')?'ogg':'webm',folder=cleanName($('folderName').value,'My-Audio'),file=cleanName($('audioName').value,'extracted-audio')+'.'+ext;
+   try{
+    if(window.showDirectoryPicker){
+     const root=await window.showDirectoryPicker({mode:'readwrite'});const dir=await root.getDirectoryHandle(folder,{create:true});const handle=await dir.getFileHandle(file,{create:true});const writable=await handle.createWritable();await writable.write(blob);await writable.close();
+     status($('audioStatus'),'Finished! Saved '+folder+'/'+file+' in the folder you selected.');
+    }else{
+     const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=folder+'_'+file;a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);
+     status($('audioStatus'),'Finished! Your audio file was downloaded as '+folder+'_'+file+'. Your browser does not support choosing a destination folder here.');
+    }
+   }catch(err){
+    if(err&&err.name==='AbortError')status($('audioStatus'),'Folder selection was cancelled. Convert again when you are ready.',true);
+    else status($('audioStatus'),'Audio was converted, but saving failed. Please try downloading again.',true);
+   }
+   setTimeout(()=>$('progress').style.display='none',1800);
+  };
+  recorder.start(250);
+  video.onended=()=>{if(recorder&&recorder.state!=='inactive')recorder.stop()};
+  video.onerror=()=>{if(recorder&&recorder.state!=='inactive')recorder.stop();status($('audioStatus'),'The video could not be played by this browser.',true)};
+ }catch(err){
+  if(stream)stream.getTracks().forEach(t=>t.stop());recording=false;$('convertBtn').disabled=false;$('convertBtn').textContent='Convert video to audio';status($('audioStatus'),'Could not start conversion. Check that the video contains audio and try again.',true);
+ }
+};
+$('clearVideo').onclick=()=>{if(recording)return;videoFile=null;$('videoInput').value='';$('videoView').pause();$('videoView').removeAttribute('src');$('videoView').load();$('videoPreview').style.display='none';$('videoInfo').textContent='No video selected';$('convertBtn').disabled=true;clearStatus($('audioStatus'));$('progress').style.display='none';if(videoUrl)URL.revokeObjectURL(videoUrl);videoUrl=null};
+function setupDrop(zone,input){zone.addEventListener('dragover',e=>{e.preventDefault();zone.classList.add('drag')});zone.addEventListener('dragleave',()=>zone.classList.remove('drag'));zone.addEventListener('drop',e=>{e.preventDefault();zone.classList.remove('drag');const f=e.dataTransfer.files[0];if(f){const dt=new DataTransfer();dt.items.add(f);input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}))}})}
+setupDrop($('imageDrop'),$('imageInput'));setupDrop($('videoDrop'),$('videoInput'));
+</script>
+</body>
+</html>
