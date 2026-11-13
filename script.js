@@ -41,6 +41,61 @@ $('videoInput').addEventListener('change',e=>{
  if(videoUrl)URL.revokeObjectURL(videoUrl);videoUrl=URL.createObjectURL(videoFile);
  $('videoView').src=videoUrl;$('videoPreview').style.display='block';$('videoInfo').textContent=videoFile.name+' · '+humanSize(videoFile.size);$('convertBtn').disabled=false;
 });
+
+// Fast path: copy an MP3 audio track directly from an MP4 container.
+// This avoids playback and re-encoding, but only works when the source
+// MP4 actually contains MP3 audio (many MP4 files contain AAC instead).
+let mp4boxLoading=null;
+function loadMP4Box(){
+ if(window.MP4Box)return Promise.resolve(window.MP4Box);
+ if(mp4boxLoading)return mp4boxLoading;
+ mp4boxLoading=new Promise((resolve,reject)=>{
+  const script=document.createElement('script');
+  script.src='https://cdn.jsdelivr.net/npm/mp4box@0.5.4/dist/mp4box.all.min.js';
+  script.onload=()=>window.MP4Box?resolve(window.MP4Box):reject(new Error('MP4 parser did not initialize.'));
+  script.onerror=()=>reject(new Error('Could not load the MP4 parser.'));
+  document.head.appendChild(script);
+ });
+ return mp4boxLoading;
+}
+async function extractExistingMP3(file){
+ const MP4Box=await loadMP4Box();
+ const buffer=await file.arrayBuffer();
+ const mp4=MP4Box.createFile();
+ buffer.fileStart=0;
+ return await new Promise((resolve,reject)=>{
+  let settled=false,trackInfo=null,sampleParts=[],sampleCount=0;
+  const finish=(value,error)=>{
+   if(settled)return;settled=true;
+   error?reject(error):resolve(value);
+  };
+  mp4.onError=err=>finish(null,new Error('Could not read this MP4 file: '+err));
+  mp4.onReady=info=>{
+   trackInfo=info.audioTracks&&info.audioTracks.find(t=>/^(mp4a\.6[bB]|mp4a\.69|mp3)$/i.test(t.codec||''));
+   if(!trackInfo){finish(null);return}
+   mp4.setExtractionOptions(trackInfo.id,'mp3-copy',{nbSamples:trackInfo.nb_samples||1000000});
+   mp4.start();
+  };
+  mp4.onSamples=(id,user,samples)=>{
+   for(const sample of samples){
+    if(sample.data&&sample.data.byteLength){sampleParts.push(new Uint8Array(sample.data));sampleCount++}
+   }
+   if(trackInfo&&trackInfo.nb_samples&&sampleCount>=trackInfo.nb_samples){
+    finish(new Blob(sampleParts,{type:'audio/mpeg'}));
+   }
+  };
+  try{mp4.appendBuffer(buffer);mp4.flush()}catch(err){finish(null,err)}
+  // Some MP4s do not expose a sample count; give extraction a short
+  // completion window after the parser has flushed its sample callbacks.
+  setTimeout(()=>{
+   if(!settled){
+    if(sampleParts.length)finish(new Blob(sampleParts,{type:'audio/mpeg'}));
+    else finish(null);
+   }
+  },1200);
+ });
+}
+
 let lameLoading=null;
 function loadLame(){
  if(window.lamejs)return Promise.resolve(window.lamejs);
@@ -63,6 +118,14 @@ function toInt16(floatData){
  return result;
 }
 async function recordVideoAudioAsMP3(file){
+ // First try a zero-re-encode MP3 stream copy from the MP4 container.
+ if(/\.mp4$/i.test(file.name)||file.type==='video/mp4'){
+  try{
+   $('convertBtn').textContent='Checking for existing MP3 audio…';
+   const copied=await extractExistingMP3(file);
+   if(copied&&copied.size){$('progressBar').style.width='100%';return copied}
+  }catch(err){console.info('Direct MP3 extraction unavailable; using browser conversion:',err)}
+ }
  if(!window.MediaRecorder)throw new Error('This browser does not support audio recording. Try an updated Chrome browser.');
  const lame=await loadLame();
  const video=document.createElement('video');
