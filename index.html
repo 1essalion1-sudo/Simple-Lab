@@ -40,7 +40,7 @@
 <p class="note">How it works: the image is redrawn onto a clean canvas and exported as a new file. This strips common EXIF and other embedded metadata. The original file is not changed.</p>
 </section>
 <section class="panel hidden" id="audioPanel">
-<div class="tool-head"><div class="tool-icon">♫</div><div><h2>Video to Audio Converter</h2><p>Record the video's audio in your browser, then encode it as MP3.</p></div></div>
+<div class="tool-head"><div class="tool-icon">♫</div><div><h2>Video to Audio Converter</h2><p>Extract and convert the audio directly in your browser with a fast media engine.</p></div></div>
 <label class="drop" id="videoDrop" for="videoInput"><div class="big">▹</div><strong>Choose a video</strong><small>Tap to browse MP4, WebM or another browser-supported video</small></label>
 <input id="videoInput" type="file" accept="video/*">
 <div class="fileline" id="videoInfo">No video selected</div>
@@ -51,11 +51,19 @@
 <div class="actions"><button class="btn" id="convertBtn" disabled>Convert video to MP3</button><button class="btn secondary" id="clearVideo" type="button">Clear</button></div>
 <div class="progress" id="progress"><span id="progressBar"></span></div>
 <div class="status" id="audioStatus" role="status"></div>
-<p class="note">Uses your browser's built-in audio playback and recording plus a lightweight MP3 encoder — no FFmpeg or worker required. The video stays on your device. Audio capture runs in real time, so a 5-minute video takes about 5 minutes. MP3 encoding now runs in small batches so the page can keep responding. Keep this tab open until the MP3 downloads.</p>
+<p class="note">Powered by Mediabunny + WebCodecs with a fast MP3 encoder. Processing happens locally in your browser; no video upload or backend is used. Speed depends on your device and video format. Keep this tab open until the MP3 downloads.</p>
 </section>
 <footer class="footer">Simple Lab · Your files stay on your device</footer>
 </main>
 
+<script type="importmap">
+{
+  "imports": {
+    "mediabunny": "https://esm.sh/mediabunny@1.65.2",
+    "@mediabunny/mp3-encoder": "https://esm.sh/@mediabunny/mp3-encoder@1.65.2?external=mediabunny"
+  }
+}
+</script>
 <script src="./script.js"></script>
 </body>
 </html>
