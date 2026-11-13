@@ -1,3 +1,6 @@
+import { Input, ALL_FORMATS, BlobSource, Output, BufferTarget, Mp3OutputFormat, canEncodeAudio, Conversion } from "mediabunny";
+import { registerMp3Encoder } from "@mediabunny/mp3-encoder";
+
 const $=id=>document.getElementById(id);
 function status(el,msg,error=false){el.textContent=msg;el.classList.toggle('error',error);el.style.display='block'}
 function clearStatus(el){el.style.display='none';el.textContent=''}
@@ -42,176 +45,47 @@ $('videoInput').addEventListener('change',e=>{
  $('videoView').src=videoUrl;$('videoPreview').style.display='block';$('videoInfo').textContent=videoFile.name+' · '+humanSize(videoFile.size);$('convertBtn').disabled=false;
 });
 
-// Fast path: copy an MP3 audio track directly from an MP4 container.
-// This avoids playback and re-encoding, but only works when the source
-// MP4 actually contains MP3 audio (many MP4 files contain AAC instead).
-let mp4boxLoading=null;
-function loadMP4Box(){
- if(window.MP4Box)return Promise.resolve(window.MP4Box);
- if(mp4boxLoading)return mp4boxLoading;
- mp4boxLoading=new Promise((resolve,reject)=>{
-  const script=document.createElement('script');
-  script.src='https://cdn.jsdelivr.net/npm/mp4box@0.5.4/dist/mp4box.all.min.js';
-  script.onload=()=>window.MP4Box?resolve(window.MP4Box):reject(new Error('MP4 parser did not initialize.'));
-  script.onerror=()=>reject(new Error('Could not load the MP4 parser.'));
-  document.head.appendChild(script);
- });
- return mp4boxLoading;
-}
-async function extractExistingMP3(file){
- const MP4Box=await loadMP4Box();
- const buffer=await file.arrayBuffer();
- const mp4=MP4Box.createFile();
- buffer.fileStart=0;
- return await new Promise((resolve,reject)=>{
-  let settled=false,trackInfo=null,sampleParts=[],sampleCount=0;
-  const finish=(value,error)=>{
-   if(settled)return;settled=true;
-   error?reject(error):resolve(value);
-  };
-  mp4.onError=err=>finish(null,new Error('Could not read this MP4 file: '+err));
-  mp4.onReady=info=>{
-   trackInfo=info.audioTracks&&info.audioTracks.find(t=>/^(mp4a\.6[bB]|mp4a\.69|mp3)$/i.test(t.codec||''));
-   if(!trackInfo){finish(null);return}
-   mp4.setExtractionOptions(trackInfo.id,'mp3-copy',{nbSamples:trackInfo.nb_samples||1000000});
-   mp4.start();
-  };
-  mp4.onSamples=(id,user,samples)=>{
-   for(const sample of samples){
-    if(sample.data&&sample.data.byteLength){sampleParts.push(new Uint8Array(sample.data));sampleCount++}
-   }
-   if(trackInfo&&trackInfo.nb_samples&&sampleCount>=trackInfo.nb_samples){
-    finish(new Blob(sampleParts,{type:'audio/mpeg'}));
-   }
-  };
-  try{mp4.appendBuffer(buffer);mp4.flush()}catch(err){finish(null,err)}
-  // Some MP4s do not expose a sample count; give extraction a short
-  // completion window after the parser has flushed its sample callbacks.
-  setTimeout(()=>{
-   if(!settled){
-    if(sampleParts.length)finish(new Blob(sampleParts,{type:'audio/mpeg'}));
-    else finish(null);
-   }
-  },1200);
- });
-}
-
-let lameLoading=null;
-function loadLame(){
- if(window.lamejs)return Promise.resolve(window.lamejs);
- if(lameLoading)return lameLoading;
- lameLoading=new Promise((resolve,reject)=>{
-  const script=document.createElement('script');
-  script.src='https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js';
-  script.onload=()=>window.lamejs?resolve(window.lamejs):reject(new Error('MP3 encoder did not initialize. Reload and try again.'));
-  script.onerror=()=>reject(new Error('Could not load the MP3 encoder. Check your internet connection.'));
-  document.head.appendChild(script);
- });
- return lameLoading;
-}
-function toInt16(floatData){
- const result=new Int16Array(floatData.length);
- for(let i=0;i<floatData.length;i++){
-  const sample=Math.max(-1,Math.min(1,floatData[i]));
-  result[i]=sample<0?sample*32768:sample*32767;
+// Local conversion pipeline: Mediabunny demuxes/decodes the source,
+// then its MP3 output encoder writes an audio-only MP3 file.
+let mp3EncoderReady = false;
+async function convertVideoToMP3(file){
+ if(!mp3EncoderReady){
+  if(!(await canEncodeAudio('mp3'))) registerMp3Encoder();
+  mp3EncoderReady = true;
  }
- return result;
-}
-async function recordVideoAudioAsMP3(file){
- // First try a zero-re-encode MP3 stream copy from the MP4 container.
- if(/\.mp4$/i.test(file.name)||file.type==='video/mp4'){
-  try{
-   $('convertBtn').textContent='Checking for existing MP3 audio…';
-   const copied=await extractExistingMP3(file);
-   if(copied&&copied.size){$('progressBar').style.width='100%';return copied}
-  }catch(err){console.info('Direct MP3 extraction unavailable; using browser conversion:',err)}
- }
- if(!window.MediaRecorder)throw new Error('This browser does not support audio recording. Try an updated Chrome browser.');
- const lame=await loadLame();
- const video=document.createElement('video');
- const videoObjectURL=URL.createObjectURL(file);
- video.src=videoObjectURL;
- video.width=0; video.height=0;
- video.style.cssText='position:fixed;width:0;height:0;opacity:0;pointer-events:none;left:-10000px;top:-10000px';
- video.preload='auto';
- video.playsInline=true;
- video.muted=false;
- const AudioCtx=window.AudioContext||window.webkitAudioContext;
- if(!AudioCtx)throw new Error('Web Audio is not supported by this browser.');
- const audioContext=new AudioCtx();
- let recorder=null,stream=null,source=null,destination=null;
+ const input = new Input({
+  source: new BlobSource(file),
+  formats: ALL_FORMATS
+ });
+ const target = new BufferTarget();
+ const output = new Output({
+  format: new Mp3OutputFormat(),
+  target
+ });
  try{
-  await new Promise((resolve,reject)=>{
-   video.onloadedmetadata=resolve;
-   video.onerror=()=>reject(new Error('This video format cannot be opened by your browser.'));
-   video.load();
-  });
-  await audioContext.resume();
-  source=audioContext.createMediaElementSource(video);
-  destination=audioContext.createMediaStreamDestination();
-  source.connect(destination);
-  source.connect(audioContext.destination);
-  stream=destination.stream;
-  const mimeTypes=['audio/webm;codecs=opus','audio/ogg;codecs=opus','audio/webm'];
-  const mimeType=mimeTypes.find(type=>MediaRecorder.isTypeSupported(type));
-  if(!mimeType)throw new Error('This browser cannot record an audio stream in a supported format.');
-  const chunks=[];
-  recorder=new MediaRecorder(stream,{mimeType});
-  const recorded=new Promise((resolve,reject)=>{
-   recorder.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)};
-   recorder.onerror=()=>reject(new Error('Browser audio recording failed.'));
-   recorder.onstop=()=>resolve(new Blob(chunks,{type:mimeType}));
-  });
-  video.onended=()=>{if(recorder&&recorder.state!=='inactive')recorder.stop()};
-  recorder.start(1000);
-  await video.play();
-  $('convertBtn').textContent='Extracting audio…';
-  $('progressBar').style.width='8%';
-  const duration=Number.isFinite(video.duration)?video.duration:0;
-  const progressTimer=setInterval(()=>{
-   if(duration>0)$('progressBar').style.width=Math.min(75,8+(video.currentTime/duration)*67)+'%';
-  },400);
-  let recordedBlob;
-  try{recordedBlob=await recorded}finally{clearInterval(progressTimer)}
-  if(!recordedBlob.size)throw new Error('No audio was recorded. Check that the video has an audio track.');
-  $('convertBtn').textContent='Encoding MP3…';
-  $('progressBar').style.width='78%';
-  const audioBuffer=await audioContext.decodeAudioData(await recordedBlob.arrayBuffer());
-  const channels=Math.min(2,audioBuffer.numberOfChannels);
-  const encoder=new lame.Mp3Encoder(channels,audioBuffer.sampleRate,192);
-  const left=toInt16(audioBuffer.getChannelData(0));
-  const right=channels>1?toInt16(audioBuffer.getChannelData(1)):null;
-  const mp3Chunks=[];
-  const blockSize=1152*40;
-  for(let i=0;i<left.length;i+=blockSize){
-   const l=left.subarray(i,Math.min(i+blockSize,left.length));
-   const mp3=channels>1?encoder.encodeBuffer(l,right.subarray(i,Math.min(i+blockSize,right.length))):encoder.encodeBuffer(l);
-   if(mp3.length)mp3Chunks.push(new Uint8Array(mp3));
-   $('progressBar').style.width=Math.min(98,78+(i/left.length)*20)+'%';
-   $('convertBtn').textContent='Encoding MP3… '+Math.round((i/left.length)*100)+'%';
-   await new Promise(resolve=>setTimeout(resolve,0));
+  const conversion = await Conversion.init({input,output});
+  if(!conversion.isValid){
+   const reasons = (conversion.discardedTracks||[]).map(x=>x.reason).filter(Boolean);
+   throw new Error(reasons[0] || 'This video does not contain audio that can be converted.');
   }
-  const tail=encoder.flush();
-  if(tail.length)mp3Chunks.push(new Uint8Array(tail));
-  return new Blob(mp3Chunks,{type:'audio/mpeg'});
+  conversion.onProgress = progress => {
+   const pct = Math.max(0,Math.min(99,Math.round(progress*100)));
+   $('progressBar').style.width=pct+'%';
+   $('convertBtn').textContent='Converting… '+pct+'%';
+  };
+  await conversion.execute();
+  if(!target.buffer || !target.buffer.byteLength) throw new Error('No audio was found in this video.');
+  return new Blob([target.buffer],{type:'audio/mpeg'});
  }finally{
-  if(recorder&&recorder.state!=='inactive'){try{recorder.stop()}catch(e){}}
-  if(stream)stream.getTracks().forEach(track=>track.stop());
-  video.pause();
-  video.removeAttribute('src');
-  video.load();
-  URL.revokeObjectURL(videoObjectURL);
-  try{source&&source.disconnect()}catch(e){}
-  try{destination&&destination.disconnect()}catch(e){}
-  try{await audioContext.close()}catch(e){}
+  try{input.dispose()}catch(e){}
  }
 }
 $('convertBtn').onclick=async()=>{
  if(!videoFile||recording)return;
- recording=true;$('convertBtn').disabled=true;$('convertBtn').textContent='Loading audio tools…';
+ recording=true;$('convertBtn').disabled=true;$('convertBtn').textContent='Loading conversion engine…';
  clearStatus($('audioStatus'));$('progress').style.display='block';$('progressBar').style.width='0%';
  try{
-  const blob=await recordVideoAudioAsMP3(videoFile);
+  const blob=await convertVideoToMP3(videoFile);
   if(!blob.size)throw new Error('No audio was found in this video.');
   const filename=cleanName($('audioName').value,'extracted-audio')+'.mp3';
   const url=URL.createObjectURL(blob),link=document.createElement('a');
