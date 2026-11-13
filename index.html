@@ -100,32 +100,37 @@ $('videoInput').addEventListener('change',e=>{
  if(videoUrl)URL.revokeObjectURL(videoUrl);videoUrl=URL.createObjectURL(videoFile);
  $('videoView').src=videoUrl;$('videoPreview').style.display='block';$('videoInfo').textContent=videoFile.name+' · '+humanSize(videoFile.size);$('convertBtn').disabled=false;
 });
-let ffmpegInstance=null,ffmpegLoading=null;
+let ffmpegInstance=null,ffmpegLoading=null,fetchFileFn=null,toBlobURLFn=null;
+function loadScript(src){
+ return new Promise((resolve,reject)=>{
+  const script=document.createElement('script');script.src=src;
+  script.onload=resolve;
+  script.onerror=()=>reject(new Error('Could not load an FFmpeg component. Check your internet connection and reload.'));
+  document.head.appendChild(script);
+ });
+}
 async function getFFmpeg(){
  if(ffmpegInstance)return ffmpegInstance;
  if(ffmpegLoading)return ffmpegLoading;
  ffmpegLoading=(async()=>{
-  if(!window.FFmpeg){
-   await new Promise((resolve,reject)=>{
-    const script=document.createElement('script');
-    script.src='https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js';
-    script.onload=resolve;
-    script.onerror=()=>reject(new Error('Could not load the FFmpeg library. Check your internet connection and try again.'));
-    document.head.appendChild(script);
-   });
-  }
-  if(!window.FFmpeg||!window.FFmpeg.createFFmpeg)throw new Error('The FFmpeg library did not initialize. Try reloading the page.');
-  const engine=window.FFmpeg.createFFmpeg({
-   log:false,
-   corePath:'https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js',
-   mainName:'main',
-   progress:({ratio})=>{
-    if(Number.isFinite(ratio))$('progressBar').style.width=Math.max(0,Math.min(99,ratio*100))+'%';
-   }
+  const version='0.12.10';
+  await loadScript('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@'+version+'/dist/umd/ffmpeg.js');
+  await loadScript('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.2/dist/umd/index.js');
+  if(!window.FFmpegWASM?.FFmpeg)throw new Error('The updated FFmpeg wrapper did not initialize. Reload the page and try again.');
+  if(!window.FFmpegUtil?.toBlobURL||!window.FFmpegUtil?.fetchFile)throw new Error('The FFmpeg helper library did not initialize. Reload the page and try again.');
+  fetchFileFn=window.FFmpegUtil.fetchFile;
+  toBlobURLFn=window.FFmpegUtil.toBlobURL;
+  const ffmpeg=new window.FFmpegWASM.FFmpeg();
+  ffmpeg.on('progress',({progress})=>{
+   if(Number.isFinite(progress))$('progressBar').style.width=Math.max(0,Math.min(99,progress*100))+'%';
   });
-  await engine.load();
-  ffmpegInstance=engine;
-  return engine;
+  const base='https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd';
+  await ffmpeg.load({
+   coreURL:await toBlobURLFn(base+'/ffmpeg-core.js','text/javascript'),
+   wasmURL:await toBlobURLFn(base+'/ffmpeg-core.wasm','application/wasm')
+  });
+  ffmpegInstance=ffmpeg;
+  return ffmpeg;
  })();
  try{return await ffmpegLoading}catch(e){ffmpegLoading=null;throw e}
 }
@@ -139,11 +144,11 @@ $('convertBtn').onclick=async()=>{
   $('convertBtn').textContent='Converting to MP3…';
   const ext=(videoFile.name.match(/\.([a-z0-9]{1,8})$/i)||[])[1]||'mp4';
   inputName='input-video.'+ext.replace(/[^a-z0-9]/gi,'');
-  engine.FS('writeFile',inputName,await window.FFmpeg.fetchFile(videoFile));
-  await engine.run('-i',inputName,'-vn','-map','0:a:0','-codec:a','libmp3lame','-b:a','192k','-y',outputName);
-  const data=engine.FS('readFile',outputName);
+  await engine.writeFile(inputName,await fetchFileFn(videoFile));
+  await engine.exec(['-i',inputName,'-vn','-map','0:a:0','-codec:a','libmp3lame','-b:a','192k','-y',outputName]);
+  const data=await engine.readFile(outputName);
   if(!data||!data.length)throw new Error('No audio was extracted. Check that the video contains an audio track.');
-  const blob=new Blob([data.buffer],{type:'audio/mpeg'});
+  const blob=new Blob([data],{type:'audio/mpeg'});
   const filename=cleanName($('audioName').value,'extracted-audio')+'.mp3';
   const url=URL.createObjectURL(blob),link=document.createElement('a');
   link.href=url;link.download=filename;document.body.appendChild(link);link.click();link.remove();
@@ -154,8 +159,8 @@ $('convertBtn').onclick=async()=>{
   status($('audioStatus'),err.message||'Conversion failed. Try a smaller video or another browser.',true);
  }finally{
   if(engine){
-   try{engine.FS('unlink',inputName)}catch(e){}
-   try{engine.FS('unlink',outputName)}catch(e){}
+   try{await engine.deleteFile(inputName)}catch(e){}
+   try{await engine.deleteFile(outputName)}catch(e){}
   }
   recording=false;$('convertBtn').disabled=!videoFile;$('convertBtn').textContent='Convert video to MP3';
   setTimeout(()=>$('progress').style.display='none',2200);
