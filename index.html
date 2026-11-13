@@ -40,7 +40,7 @@
 <p class="note">How it works: the image is redrawn onto a clean canvas and exported as a new file. This strips common EXIF and other embedded metadata. The original file is not changed.</p>
 </section>
 <section class="panel hidden" id="audioPanel">
-<div class="tool-head"><div class="tool-icon">♫</div><div><h2>Video to Audio Converter</h2><p>Extract the audio track from a video and save it as an audio file.</p></div></div>
+<div class="tool-head"><div class="tool-icon">♫</div><div><h2>Video to Audio Converter</h2><p>Extract audio as WAV first, then convert it to MP3.</p></div></div>
 <label class="drop" id="videoDrop" for="videoInput"><div class="big">▹</div><strong>Choose a video</strong><small>Tap to browse MP4, WebM or another browser-supported video</small></label>
 <input id="videoInput" type="file" accept="video/*">
 <div class="fileline" id="videoInfo">No video selected</div>
@@ -48,10 +48,10 @@
 <div class="fields">
 <div class="field"><label for="audioName">MP3 file name</label><input id="audioName" type="text" maxlength="80" value="extracted-audio" placeholder="e.g. my-audio"></div>
 </div>
-<div class="actions"><button class="btn" id="convertBtn" disabled>Convert video to audio</button><button class="btn secondary" id="clearVideo" type="button">Clear</button></div>
+<div class="actions"><button class="btn" id="convertBtn" disabled>Convert video to MP3</button><button class="btn secondary" id="clearVideo" type="button">Clear</button></div>
 <div class="progress" id="progress"><span id="progressBar"></span></div>
 <div class="status" id="audioStatus" role="status"></div>
-<p class="note">Uses the single-thread FFmpeg engine in your browser to extract and encode MP3 offline, without requiring SharedArrayBuffer. Your video stays on your device and is not uploaded. Conversion speed depends on your device; large videos may need extra memory. The MP3 downloads directly when processing finishes. Keep this tab open during conversion.</p>
+<p class="note">Two-step conversion: video → WAV → MP3, using FFmpeg in your browser. Your video stays on your device and is not uploaded. Conversion speed depends on your device; large videos may need extra memory. The MP3 downloads directly when processing finishes. Keep this tab open during conversion.</p>
 </section>
 <footer class="footer">Simple Lab · Your files stay on your device</footer>
 </main>
@@ -141,14 +141,16 @@ $('convertBtn').onclick=async()=>{
  if(!videoFile||recording)return;
  recording=true;$('convertBtn').disabled=true;$('convertBtn').textContent='Loading MP3 engine…';
  clearStatus($('audioStatus'));$('progress').style.display='block';$('progressBar').style.width='0%';
- let inputName='input-video',outputName='output-audio.mp3',engine=null;
+ let inputName='input-video',wavName='intermediate-audio.wav',outputName='output-audio.mp3',engine=null;
  try{
   engine=await getFFmpeg();
-  $('convertBtn').textContent='Converting to MP3…';
+  $('convertBtn').textContent='Extracting audio to WAV…';
   const ext=(videoFile.name.match(/\.([a-z0-9]{1,8})$/i)||[])[1]||'mp4';
   inputName='input-video.'+ext.replace(/[^a-z0-9]/gi,'');
   await engine.writeFile(inputName,await fetchFileFn(videoFile));
-  await engine.exec(['-i',inputName,'-vn','-map','0:a:0','-codec:a','libmp3lame','-b:a','192k','-y',outputName]);
+  await engine.exec(['-i',inputName,'-vn','-map','0:a:0','-c:a','pcm_s16le','-y',wavName]);
+  $('convertBtn').textContent='Converting WAV to MP3…';
+  await engine.exec(['-i',wavName,'-codec:a','libmp3lame','-b:a','192k','-y',outputName]);
   const data=await engine.readFile(outputName);
   if(!data||!data.length)throw new Error('No audio was extracted. Check that the video contains an audio track.');
   const blob=new Blob([data],{type:'audio/mpeg'});
@@ -163,6 +165,7 @@ $('convertBtn').onclick=async()=>{
  }finally{
   if(engine){
    try{await engine.deleteFile(inputName)}catch(e){}
+   try{await engine.deleteFile(wavName)}catch(e){}
    try{await engine.deleteFile(outputName)}catch(e){}
   }
   recording=false;$('convertBtn').disabled=!videoFile;$('convertBtn').textContent='Convert video to MP3';
