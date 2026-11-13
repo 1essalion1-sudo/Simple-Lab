@@ -118,6 +118,7 @@ async function getFFmpeg(){
   const engine=window.FFmpeg.createFFmpeg({
    log:false,
    corePath:'https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js',
+   mainName:'main',
    progress:({ratio})=>{
     if(Number.isFinite(ratio))$('progressBar').style.width=Math.max(0,Math.min(99,ratio*100))+'%';
    }
