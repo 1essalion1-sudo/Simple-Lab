@@ -115,11 +115,14 @@ async function getFFmpeg(){
  ffmpegLoading=(async()=>{
   const version='0.12.10';
   await loadScript('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@'+version+'/dist/umd/ffmpeg.js');
-  await loadScript('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.2/dist/umd/index.js');
   if(!window.FFmpegWASM?.FFmpeg)throw new Error('The updated FFmpeg wrapper did not initialize. Reload the page and try again.');
-  if(!window.FFmpegUtil?.toBlobURL||!window.FFmpegUtil?.fetchFile)throw new Error('The FFmpeg helper library did not initialize. Reload the page and try again.');
-  fetchFileFn=window.FFmpegUtil.fetchFile;
-  toBlobURLFn=window.FFmpegUtil.toBlobURL;
+  fetchFileFn=async file=>new Uint8Array(await file.arrayBuffer());
+  toBlobURLFn=async(url,mimeType)=>{
+   const response=await fetch(url);
+   if(!response.ok)throw new Error('Could not download FFmpeg core ('+response.status+'). Check your internet connection.');
+   const data=await response.arrayBuffer();
+   return URL.createObjectURL(new Blob([data],{type:mimeType}));
+  };
   const ffmpeg=new window.FFmpegWASM.FFmpeg();
   ffmpeg.on('progress',({progress})=>{
    if(Number.isFinite(progress))$('progressBar').style.width=Math.max(0,Math.min(99,progress*100))+'%';
